@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ระบบบันทึกการขอใช้ยานพาหนะ PSP102</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&family=Kanit:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script>
+  tailwind.config = {
+    theme: { extend: { fontFamily: {
+      sans: ['Anuphan', 'system-ui', 'sans-serif'],
+      display: ['Kanit', 'sans-serif'],
+      mono: ['"IBM Plex Mono"', 'monospace'],
+    } } }
+  };
+</script>
+<style>
+  :root { --slate-bg:#f1f5f9; --ink:#0f172a; }
+  html, body { background: var(--slate-bg); color: var(--ink); }
+  body { font-family:'Anuphan', system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+  h1,h2,h3,h4,.font-display { font-family:'Kanit', sans-serif; }
+
+  .app-bg {
+    background-color:#f1f5f9;
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(37,99,235,.06), transparent 40%),
+      radial-gradient(circle at 100% 0%, rgba(16,185,129,.05), transparent 35%);
+    background-attachment: fixed;
+  }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:10px; border:2px solid #f1f5f9; }
+  ::-webkit-scrollbar-thumb:hover { background:#94a3b8; }
+
+  .view { display:none; animation: fadeUp .35s cubic-bezier(.16,1,.3,1); }
+  .view.active { display:block; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
+  .reveal { opacity:0; transform:translateY(12px); animation: fadeUp .5s cubic-bezier(.16,1,.3,1) forwards; }
+
+  .nav-btn { transition: all .2s ease; }
+  .nav-btn.active { background:#fff; color:#1d4ed8; box-shadow:0 1px 2px rgba(15,23,42,.06), 0 4px 12px rgba(15,23,42,.05); }
+
+  .cal-grid { display:grid; grid-template-columns:150px repeat(7, minmax(0,1fr)); }
+  .cal-cell { border-right:1px solid #e2e8f0; border-bottom:1px solid #e2e8f0; min-height:92px; }
+  .cal-head { border-bottom:2px solid #e2e8f0; }
+  .cal-today { background:linear-gradient(180deg, rgba(37,99,235,.07), rgba(37,99,235,0)); }
+  .chip { transition: transform .15s ease, box-shadow .15s ease; }
+  .chip:hover { transform:translateY(-1px); box-shadow:0 6px 14px rgba(15,23,42,.12); z-index:5; }
+
+  #toast-wrap { position:fixed; top:20px; right:20px; z-index:120; display:flex; flex-direction:column; gap:10px; }
+  .toast { min-width:300px; max-width:380px; border-radius:14px; padding:14px 16px; color:#fff;
+    box-shadow:0 12px 30px rgba(15,23,42,.22); display:flex; gap:12px; align-items:flex-start;
+    animation: toastIn .4s cubic-bezier(.16,1,.3,1); }
+  .toast.out { animation: toastOut .35s ease forwards; }
+  @keyframes toastIn { from{opacity:0;transform:translateX(40px) scale(.96);} to{opacity:1;transform:translateX(0) scale(1);} }
+  @keyframes toastOut { to{opacity:0;transform:translateX(40px) scale(.96);} }
+
+  .input { width:100%; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:11px 13px;
+    font-size:14px; color:#0f172a; transition: all .18s ease; }
+  .input:focus { outline:none; border-color:#2563eb; box-shadow:0 0 0 4px rgba(37,99,235,.12); }
+  .lbl { font-size:13px; font-weight:600; color:#334155; margin-bottom:6px; display:block; }
+
+  details.explainer { border:1px solid #dbeafe; background:#eff6ff; border-radius:14px; overflow:hidden; }
+  details.explainer > summary { cursor:pointer; list-style:none; padding:12px 16px; font-weight:600; color:#1d4ed8;
+    display:flex; align-items:center; gap:8px; font-size:14px; }
+  details.explainer > summary::-webkit-details-marker { display:none; }
+  details.explainer[open] > summary { border-bottom:1px solid #dbeafe; }
+  details.explainer .chev { transition: transform .2s ease; }
+  details.explainer[open] .chev { transform: rotate(180deg); }
+
+  /* Modal */
+  #modal-wrap { position:fixed; inset:0; z-index:110; display:none; align-items:center; justify-content:center; padding:16px; }
+  #modal-wrap.open { display:flex; }
+  #modal-backdrop { position:absolute; inset:0; background:rgba(15,23,42,.5); backdrop-filter:blur(2px); animation: fadeUp .2s ease; }
+  #modal-card { position:relative; background:#fff; border-radius:20px; width:100%; max-width:480px; box-shadow:0 24px 60px rgba(15,23,42,.3);
+    animation: modalIn .3s cubic-bezier(.16,1,.3,1); max-height:90vh; overflow:auto; }
+  @keyframes modalIn { from{opacity:0;transform:translateY(16px) scale(.97);} to{opacity:1;transform:translateY(0) scale(1);} }
+
+  /* Login */
+  #login { position:fixed; inset:0; z-index:130; display:grid; place-items:center; padding:20px;
+    background:radial-gradient(circle at 30% 20%, #1e3a8a, #0f172a 60%); }
+  #login.hide { display:none; }
+  .login-card { width:100%; max-width:400px; animation: modalIn .5s cubic-bezier(.16,1,.3,1); }
+  .app-hidden { display:none; }
+</style>
+</head>
+<body class="app-bg min-h-screen">
+
+<!-- ============ Toasts ============ -->
+<div id="toast-wrap"></div>
+
+<!-- ============ Login Screen ============ -->
+<div id="login">
+  <div class="login-card">
+    <div class="text-center mb-6">
+      <div class="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 grid place-items-center text-white shadow-2xl shadow-blue-900/40 mx-auto mb-4">
+        <svg viewBox="0 0 24 24" class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><path d="M5 17h14"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/><path d="M3 13h18v3a1 1 0 0 1-1 1h-1M4 17H3a1 1 0 0 1-1-1v-3"/></svg>
+      </div>
+      <h1 class="font-display font-600 text-2xl text-white">ระบบขอใช้ยานพาหนะ PSP102</h1>
+      <p class="text-blue-200/80 text-sm mt-1">Vehicle Booking &amp; Approval System</p>
+    </div>
+    <div class="bg-white rounded-2xl shadow-2xl p-6">
+      <form id="loginForm">
+        <label class="lbl">รหัสเข้าใช้งาน (Access Code)</label>
+        <input id="loginCode" class="input text-center font-mono tracking-wider text-base" placeholder="กรอกรหัสของคุณ" autocomplete="off" required />
+        <p class="text-[12px] text-slate-400 mt-2 leading-relaxed">เข้าใช้งานด้วยรหัสเท่านั้น ไม่ต้องใช้รหัสผ่าน · ผู้ดูแลระบบใช้รหัส Admin</p>
+        <button type="submit" class="mt-4 w-full inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm py-3 rounded-xl shadow-lg shadow-blue-600/25 transition">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          เข้าสู่ระบบ
+        </button>
+      </form>
+      <div id="loginHint" class="hidden mt-4 text-[12px] bg-amber-50 border border-amber-200 text-amber-700 rounded-lg px-3 py-2"></div>
+    </div>
+    <p class="text-center text-blue-200/60 text-xs mt-5">พัฒนาระบบโดย <span class="text-white font-medium">Mr.Siradanai Sirisunthorn</span></p>
+  </div>
+</div>
+
+<!-- ============ App Shell ============ -->
+<div id="app" class="app-hidden">
+
+  <!-- Top Bar -->
+  <header class="sticky top-0 z-40 backdrop-blur bg-white/85 border-b border-slate-200">
+    <div class="max-w-[1280px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-500 grid place-items-center text-white shadow-lg shadow-blue-600/25 shrink-0">
+          <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><path d="M5 17h14"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg>
+        </div>
+        <div class="min-w-0">
+          <h1 class="font-display font-600 text-[15px] sm:text-[17px] leading-tight text-slate-900 truncate">ระบบบันทึกการขอใช้ยานพาหนะ <span class="text-blue-600">PSP102</span></h1>
+          <p class="text-[11px] text-slate-400 -mt-0.5 hidden sm:block">Vehicle Booking &amp; Approval Workflow</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="modeBadge" class="hidden md:inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full px-2.5 py-1"></span>
+        <div class="flex items-center gap-2 pl-2">
+          <div class="text-right hidden sm:block">
+            <p id="userName" class="text-[13px] font-semibold text-slate-700 leading-tight">—</p>
+            <p id="userRole" class="text-[11px] text-slate-400 leading-tight">—</p>
+          </div>
+          <div id="userAvatar" class="h-9 w-9 rounded-full bg-slate-200 grid place-items-center text-slate-600 font-display text-sm">U</div>
+          <button id="logoutBtn" title="ออกจากระบบ" class="h-9 w-9 grid place-items-center rounded-lg border border-slate-200 text-slate-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Nav -->
+  <div class="max-w-[1280px] mx-auto px-4 sm:px-6 pt-5">
+    <nav class="inline-flex flex-wrap p-1 bg-slate-200/60 rounded-2xl gap-1">
+      <button data-tab="dashboard" class="nav-btn active flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        แดชบอร์ด &amp; ปฏิทิน
+      </button>
+      <button data-tab="create" class="nav-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        ยื่นคำขอใช้รถ
+      </button>
+      <button data-tab="approvals" class="nav-btn flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        การอนุมัติคำขอ
+        <span id="pendingBadge" class="ml-0.5 text-[11px] font-bold bg-rose-500 text-white rounded-full min-w-[18px] h-[18px] px-1 grid place-items-center">0</span>
+      </button>
+      <button data-tab="admin" class="nav-btn admin-only flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600" style="display:none">
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        ผู้ดูแลระบบ
+      </button>
+    </nav>
+  </div>
+
+  <main class="max-w-[1280px] mx-auto px-4 sm:px-6 py-6">
+
+    <!-- ===== VIEW: DASHBOARD ===== -->
+    <section id="view-dashboard" class="view active space-y-6">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="kpiStrip"></div>
+
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-display font-600 text-lg text-slate-800 flex items-center gap-2"><span class="h-5 w-1 rounded-full bg-blue-600"></span> ยานพาหนะในระบบ</h2>
+          <span class="text-xs text-slate-400">ตาราง “vehicles”</span>
+        </div>
+        <div id="vehicleCards" class="grid sm:grid-cols-2 gap-4"></div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
+          <div>
+            <h2 class="font-display font-600 text-lg text-slate-800 flex items-center gap-2">
+              <svg class="h-5 w-5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              ปฏิทินตารางเวลา (Scheduling)
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">Resource Timeline · รถเป็นแถว / วันเป็นคอลัมน์</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button id="calPrev" class="h-9 w-9 grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <button id="calToday" class="h-9 px-3 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition">สัปดาห์นี้</button>
+            <button id="calNext" class="h-9 w-9 grid place-items-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+            <span id="calRange" class="ml-2 text-sm font-display font-500 text-slate-700"></span>
+          </div>
+        </div>
+        <div class="overflow-x-auto"><div id="calendar" class="min-w-[840px]"></div></div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 class="font-display font-600 text-lg text-slate-800 flex items-center gap-2"><span class="h-5 w-1 rounded-full bg-blue-600"></span> คำขอจองล่าสุด</h2>
+          <span class="text-xs text-slate-400">ตาราง “bookings”</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-[12px] uppercase tracking-wide text-slate-400 bg-slate-50/60">
+                <th class="px-5 py-3 font-semibold">รหัส / Job No.</th>
+                <th class="px-5 py-3 font-semibold">ผู้ขอ / แผนก</th>
+                <th class="px-5 py-3 font-semibold">รถ</th>
+                <th class="px-5 py-3 font-semibold">ปลายทาง</th>
+                <th class="px-5 py-3 font-semibold">ช่วงเวลา</th>
+                <th class="px-5 py-3 font-semibold">สถานะ</th>
+              </tr>
+            </thead>
+            <tbody id="recentTable" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <details class="explainer">
+        <summary>
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+          สถาปัตยกรรม: แอปนี้คุยกับ Supabase อย่างไร
+          <svg class="chev h-4 w-4 ml-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </summary>
+        <div class="px-4 py-4 text-sm text-slate-600 space-y-2 leading-relaxed">
+          <p>แอปนี้เป็น Static SPA วางบน GitHub Pages และเชื่อมกับฐานข้อมูล PostgreSQL บน Supabase ผ่าน JS Client โหลดข้อมูลทั้งหมดทีเดียวตอนเปิดแอป:</p>
+          <pre class="bg-slate-900 text-slate-100 rounded-lg p-3 text-[12px] overflow-x-auto font-mono">const { data } = await sb
+  .from('bookings')
+  .select('*')
+  .order('created_at', { ascending:false });</pre>
+          <p>การตรวจเวลาซ้อนทับมี 2 ชั้น: (1) Client query ตรวจก่อนบันทึก (2) Postgres <code class="font-mono text-blue-700 bg-blue-100 px-1 rounded">EXCLUDE</code> constraint กันการจองทับซ้อนระดับฐานข้อมูล แม้มีผู้ใช้พร้อมกันก็ไม่ชนกัน</p>
+          <p id="archNote" class="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-[13px]"></p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ===== VIEW: CREATE BOOKING ===== -->
+    <section id="view-create" class="view">
+      <div class="grid lg:grid-cols-[1fr_340px] gap-6 items-start">
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="px-6 py-5 border-b border-slate-100">
+            <h2 class="font-display font-600 text-lg text-slate-800">แบบฟอร์มขอใช้ยานพาหนะ</h2>
+            <p class="text-xs text-slate-400 mt-0.5">กรอกรายละเอียดให้ครบถ้วน ระบบจะตรวจสอบเวลาซ้อนทับให้อัตโนมัติ</p>
+          </div>
+          <form id="bookingForm" class="p-6 grid sm:grid-cols-2 gap-x-5 gap-y-4" novalidate>
+            <div>
+              <label class="lbl">Job No. <span class="text-rose-500">*</span></label>
+              <input name="job_no" class="input font-mono" placeholder="เช่น JOB-2024-001" required />
+            </div>
+            <div>
+              <label class="lbl">แผนก / ฝ่าย <span class="text-rose-500">*</span></label>
+              <input name="department" class="input" placeholder="เช่น ฝ่ายจัดซื้อ" required />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="lbl">ชื่อผู้ขอใช้รถ <span class="text-rose-500">*</span></label>
+              <input name="requester_name" id="inpRequester" class="input" placeholder="เช่น สมชาย ใจดี" required />
+            </div>
+            <div>
+              <label class="lbl">เลือกยานพาหนะ <span class="text-rose-500">*</span></label>
+              <select name="vehicle_id" id="selVehicle" class="input" required><option value="">— เลือกรถ —</option></select>
+            </div>
+            <div>
+              <label class="lbl">ผู้อนุมัติ <span class="text-rose-500">*</span></label>
+              <select name="approver_id" id="selApprover" class="input" required><option value="">— เลือกผู้อนุมัติ —</option></select>
+            </div>
+            <div>
+              <label class="lbl">วันและเวลาเริ่มต้น <span class="text-rose-500">*</span></label>
+              <input type="datetime-local" name="start" id="inpStart" class="input" required />
+            </div>
+            <div>
+              <label class="lbl">วันและเวลาสิ้นสุด <span class="text-rose-500">*</span></label>
+              <input type="datetime-local" name="end" id="inpEnd" class="input" required />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="lbl">สถานที่ปลายทาง (ชื่อสถานที่ หรือ พิกัด) <span class="text-rose-500">*</span></label>
+              <input name="location" class="input" placeholder="เช่น สำนักงานใหญ่ / 13.7563, 100.5018" required />
+              <p class="text-[11px] text-slate-400 mt-1">กรอกเป็นชื่อสถานที่ หรือพิกัด lat,lng ก็ได้</p>
+            </div>
+            <div class="sm:col-span-2">
+              <label class="lbl">วัตถุประสงค์การใช้งาน <span class="text-rose-500">*</span></label>
+              <textarea name="purpose" rows="3" class="input resize-none" placeholder="เช่น รับส่งเอกสารที่สำนักงานใหญ่" required></textarea>
+            </div>
+            <div class="sm:col-span-2 flex items-center justify-between pt-1">
+              <button type="reset" class="text-sm font-medium text-slate-500 hover:text-slate-700 transition">ล้างฟอร์ม</button>
+              <button type="submit" id="submitBtn" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl shadow-lg shadow-blue-600/25 transition disabled:opacity-60 disabled:cursor-not-allowed">
+                <svg id="submitIcon" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                <span id="submitText">ส่งคำขอจอง</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="space-y-4">
+          <div class="bg-gradient-to-br from-blue-600 to-blue-700 rounded-2xl p-5 text-white shadow-lg shadow-blue-600/20">
+            <div class="flex items-center gap-2 mb-2">
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <h3 class="font-display font-600">การตรวจเวลาซ้อนทับ</h3>
+            </div>
+            <p class="text-sm text-blue-50 leading-relaxed">ก่อนบันทึก ระบบจะตรวจทุกการจองของรถคันเดียวกันที่สถานะ <b>Approved</b> หรือ <b>Pending</b> หากช่วงเวลาทับซ้อน คำขอจะถูกปฏิเสธทันที</p>
+            <div class="mt-3 text-[12px] font-mono bg-blue-800/40 rounded-lg px-3 py-2 text-blue-100">(newStart &lt; existEnd) &amp;&amp; (newEnd &gt; existStart)</div>
+          </div>
+          <details class="explainer">
+            <summary>
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              ขั้นตอนตอนกดส่งคำขอ
+              <svg class="chev h-4 w-4 ml-auto" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </summary>
+            <div class="px-4 py-4 text-sm text-slate-600 space-y-2 leading-relaxed">
+              <p>กด Submit จะ <code class="font-mono text-blue-700 bg-blue-100 px-1 rounded">e.preventDefault()</code> เพื่อไม่ให้หน้ารีเฟรช จากนั้น:</p>
+              <p>(1) ตรวจเวลาซ้อนทับ → (2) <code class="font-mono">insert</code> ลงตาราง bookings พร้อมเจน <code class="font-mono">BK-PSP102-{timestamp}</code> สถานะเริ่มต้น Pending → (3) แจ้งอีเมลผู้อนุมัติผ่าน Supabase Edge Function → (4) รีเฟรชเฉพาะตาราง+ปฏิทิน</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== VIEW: APPROVALS (การอนุมัติคำขอ) ===== -->
+    <section id="view-approvals" class="view">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-display font-600 text-lg text-slate-800">การอนุมัติคำขอ</h2>
+            <p id="approveSub" class="text-xs text-slate-400 mt-0.5">ตรวจสอบสถานะและดำเนินการอนุมัติ/ปฏิเสธคำขอใช้ยานพาหนะ</p>
+          </div>
+          <div class="flex gap-1.5" id="approveFilter">
+            <button data-f="Pending" class="filter-btn active px-3 py-1.5 rounded-lg text-sm font-medium border border-blue-600 bg-blue-600 text-white">รอตรวจสอบ</button>
+            <button data-f="Approved" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 text-slate-500">อนุมัติแล้ว</button>
+            <button data-f="Rejected" class="filter-btn px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 text-slate-500">ปฏิเสธ</button>
+          </div>
+        </div>
+        <div id="approveList" class="p-4 grid md:grid-cols-2 gap-4"></div>
+      </div>
+    </section>
+
+    <!-- ===== VIEW: ADMIN (ผู้ดูแลระบบ) ===== -->
+    <section id="view-admin" class="view space-y-6">
+
+      <!-- ผู้มีสิทธิ์อนุมัติ -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-display font-600 text-lg text-slate-800">ผู้มีสิทธิ์อนุมัติ</h2>
+            <p class="text-xs text-slate-400 mt-0.5">จัดการรายชื่อผู้มีสิทธิ์อนุมัติคำขอใช้รถ และอีเมลสำหรับแจ้งเตือน</p>
+          </div>
+          <button id="addApproverBtn" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-600/20 transition">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> เพิ่มผู้อนุมัติ
+          </button>
+        </div>
+        <div id="approverGrid" class="p-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- ผู้มีสิทธิ์ขอใช้ยานพาหนะ -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-display font-600 text-lg text-slate-800">ผู้มีสิทธิ์ขอใช้ยานพาหนะ</h2>
+            <p class="text-xs text-slate-400 mt-0.5">จัดการรหัสเข้าใช้งาน (PSP-xxxxxx) และชื่อ-สกุลของผู้มีสิทธิ์ยื่นคำขอ</p>
+          </div>
+          <button id="addUserBtn" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-600/20 transition">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> เพิ่มผู้ใช้งาน
+          </button>
+        </div>
+        <div id="userGrid" class="p-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- จัดการยานพาหนะ -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <h2 class="font-display font-600 text-lg text-slate-800">จัดการยานพาหนะ</h2>
+            <p class="text-xs text-slate-400 mt-0.5">เพิ่ม / แก้ไข / ลบ ข้อมูลรถ และปรับสถานะพร้อมใช้งาน</p>
+          </div>
+          <button id="addVehicleBtn" class="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-blue-600/20 transition">
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg> เพิ่มรถ
+          </button>
+        </div>
+        <div id="vehicleAdminGrid" class="p-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+    </section>
+
+    <footer class="mt-8 border-t border-slate-200 pt-5 pb-4 text-center">
+      <p class="text-sm text-slate-500">ระบบบันทึกการขอใช้ยานพาหนะ PSP102</p>
+      <p class="text-sm text-slate-600 mt-0.5">พัฒนาระบบโดย <span class="font-display font-600 text-blue-700">Mr.Siradanai Sirisunthorn</span></p>
+    </footer>
+  </main>
+</div>
+
+<!-- ============ Modal ============ -->
+<div id="modal-wrap">
+  <div id="modal-backdrop"></div>
+  <div id="modal-card"></div>
+</div>
+
+<script>
+/* ============================================================
+   1) CONFIG  —  แก้ไขก่อนนำไปใช้งานจริง
+   - ใส่ค่า SUPABASE_URL และ SUPABASE_ANON_KEY จาก Supabase
+   - เปลี่ยน ADMIN_CODE เป็นรหัสลับของผู้ดูแลระบบ
+   - ถ้ายังไม่ใส่ค่า Supabase แอปจะรันแบบ Demo (ข้อมูลจำลองในหน่วยความจำ)
+============================================================ */
+const CONFIG = {
+  SUPABASE_URL:      'YOUR_SUPABASE_URL',          // เช่น https://abcdxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',     // public anon key
+  ADMIN_CODE:        'PSP-570859',                 // รหัสผู้ดูแลระบบ (เปลี่ยนก่อนใช้จริง)
+  EDGE_NOTIFY_FN:    'notify-approver',            // ชื่อ Edge Function สำหรับส่งอีเมล (ไม่บังคับ)
+};
+
+const DEMO = !CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('YOUR_');
+let sb = null;
+if (!DEMO) { sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY); }
+
+/* ============================================================
+   2) HELPERS
+============================================================ */
+const pad = n => String(n).padStart(2,'0');
+function isoLocalInput(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes()); }
+function localToISO(localStr){ return new Date(localStr).toISOString(); }   // datetime-local -> UTC ISO
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+
+const THDAYS = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+const THMONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function fmtDT(s){ const d=new Date(s); return `${d.getDate()} ${THMONTHS[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function fmtTime(s){ const d=new Date(s); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+function sameDay(a,b){ return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate(); }
+function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); x.setDate(x.getDate()-x.getDay()); return x; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function isCoord(s){ return /^-?\d{1,3}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/.test((s||'').trim()); }
+function mapLink(s){ const v=(s||'').trim(); return isCoord(v) ? 'https://www.google.com/maps?q='+encodeURIComponent(v) : 'https://www.google.com/maps/search/'+encodeURIComponent(v); }
+
+const STATUS_STYLE = {
+  Approved: { txt:'อนุมัติแล้ว', cls:'bg-emerald-50 text-emerald-700 border-emerald-200', dot:'bg-emerald-500' },
+  Pending:  { txt:'รอตรวจสอบ', cls:'bg-amber-50 text-amber-700 border-amber-200',     dot:'bg-amber-500' },
+  Rejected: { txt:'ปฏิเสธ',    cls:'bg-rose-50 text-rose-700 border-rose-200',        dot:'bg-rose-500' },
+};
+const ACCENTS = ['#2563eb','#059669','#d97706','#7c3aed','#db2777','#0891b2'];
+function accentFor(id){ const i = STATE.vehicles.findIndex(v=>v.id===id); return ACCENTS[(i<0?0:i)%ACCENTS.length]; }
+
+/* ============================================================
+   3) DEMO STORE  (ใช้เมื่อยังไม่ตั้งค่า Supabase)
+============================================================ */
+function atDay(offset,h,m){ const d=new Date(); d.setDate(d.getDate()+offset); d.setHours(h,m||0,0,0); return d.toISOString(); }
+const demoStore = {
+  vehicles: [
+    { id:'VH-01', license_plate:'ฮ-1234', vehicle_type:'รถตู้โตโยต้า Commuter', image_url:'https://images.unsplash.com/photo-1605152276897-4f618f831968?auto=format&fit=crop&w=900&q=70', status:'Available' },
+    { id:'VH-02', license_plate:'บ-5678', vehicle_type:'รถกระบะอีซูซุ D-Max',   image_url:'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?auto=format&fit=crop&w=900&q=70', status:'Available' },
+  ],
+  approvers: [
+    { id:'AP-01', approver_name:'นายวิชัย มั่นคง',   approver_email:'wichai@example.com', position:'ผู้อำนวยการฝ่ายบริหาร' },
+    { id:'AP-02', approver_name:'นางสาวพิมพ์ใจ ศรี', approver_email:'pimjai@example.com', position:'หัวหน้าฝ่ายธุรการ' },
+  ],
+  users: [
+    { code:'PSP-100001', name:'สมหญิง รักงาน' },
+    { code:'PSP-100002', name:'ธนากร ขยัน' },
+    { code:'PSP-100003', name:'อรุณี สดใส' },
+  ],
+  bookings: [
+    { id:'BK-PSP102-1001', job_no:'JOB-2024-001', requester_name:'สมหญิง รักงาน', department:'ฝ่ายขาย', vehicle_id:'VH-01', start_datetime:atDay(0,9,0),  end_datetime:atDay(0,12,0), location:'สำนักงานใหญ่ สีลม', purpose:'ออกพบลูกค้าโครงการ A', approver_id:'AP-01', status:'Approved', created_by:'staff01', created_at:atDay(-1,14,0) },
+    { id:'BK-PSP102-1002', job_no:'JOB-2024-002', requester_name:'ธนากร ขยัน',   department:'ฝ่ายผลิต',  vehicle_id:'VH-02', start_datetime:atDay(1,8,30), end_datetime:atDay(1,17,0), location:'13.7563, 100.5018',   purpose:'ขนส่งวัสดุไปไซต์งาน', approver_id:'AP-02', status:'Pending', created_by:'staff02', created_at:atDay(0,9,0) },
+    { id:'BK-PSP102-1003', job_no:'JOB-2024-003', requester_name:'อรุณี สดใส',   department:'ฝ่ายบุคคล', vehicle_id:'VH-01', start_datetime:atDay(2,13,0), end_datetime:atDay(2,16,30),location:'ศูนย์ประชุมแจ้งวัฒนะ', purpose:'อบรมนอกสถานที่', approver_id:'AP-01', status:'Pending', created_by:'staff03', created_at:atDay(0,11,0) },
+  ],
+};
+
+/* ============================================================
+   4) DATA API  (สลับระหว่าง Demo และ Supabase อัตโนมัติ)
+============================================================ */
+const api = {
+  async getInitialData(){
+    if (DEMO){ await sleep(300); return clone(demoStore); }
+    const [v,a,b,u] = await Promise.all([
+      sb.from('vehicles').select('*').order('id'),
+      sb.from('approvers').select('*').order('approver_name'),
+      sb.from('bookings').select('*').order('created_at',{ ascending:false }),
+      sb.from('app_users').select('*').order('code'),
+    ]);
+    const err = v.error||a.error||b.error||u.error; if (err) throw err;
+    return { vehicles:v.data||[], approvers:a.data||[], bookings:b.data||[], users:u.data||[] };
+  },
+
+  async createBooking(rec){
+    if (DEMO){
+      await sleep(450);
+      if (hasOverlap(demoStore.bookings, rec)) throw new Error('OVERLAP');
+      demoStore.bookings.push(rec);
+      return clone(rec);
+    }
+    // pre-check overlap
+    const { data:clash, error:e1 } = await sb.from('bookings').select('id')
+      .eq('vehicle_id', rec.vehicle_id).in('status',['Pending','Approved'])
+      .lt('start_datetime', rec.end_datetime).gt('end_datetime', rec.start_datetime).limit(1);
+    if (e1) throw e1;
+    if (clash && clash.length) throw new Error('OVERLAP');
+    const { data, error } = await sb.from('bookings').insert(rec).select().single();
+    if (error){ if (error.code==='23P01' || /overlap|exclu/i.test(error.message)) throw new Error('OVERLAP'); throw error; }
+    return data;
+  },
+
+  async updateBookingStatus(id, status){
+    if (DEMO){ await sleep(300); const b=demoStore.bookings.find(x=>x.id===id); if(b) b.status=status; return b; }
+    const { data, error } = await sb.from('bookings').update({ status }).eq('id', id).select().single();
+    if (error) throw error; return data;
+  },
+
+  async deleteBooking(id){
+    if (DEMO){ await sleep(250); demoStore.bookings = demoStore.bookings.filter(x=>x.id!==id); return; }
+    const { error } = await sb.from('bookings').delete().eq('id', id); if (error) throw error;
+  },
+
+  async saveVehicle(v, isNew){
+    if (DEMO){ await sleep(250);
+      if (isNew) demoStore.vehicles.push(v);
+      else { const i=demoStore.vehicles.findIndex(x=>x.id===v.id); if(i>=0) demoStore.vehicles[i]=v; }
+      return v;
+    }
+    const { data, error } = await sb.from('vehicles').upsert(v).select().single(); if (error) throw error; return data;
+  },
+  async deleteVehicle(id){
+    if (DEMO){ await sleep(250); demoStore.vehicles = demoStore.vehicles.filter(x=>x.id!==id); return; }
+    const { error } = await sb.from('vehicles').delete().eq('id', id); if (error) throw error;
+  },
+
+  async saveApprover(a, isNew){
+    if (DEMO){ await sleep(250);
+      if (isNew) demoStore.approvers.push(a);
+      else { const i=demoStore.approvers.findIndex(x=>x.id===a.id); if(i>=0) demoStore.approvers[i]=a; }
+      return a;
+    }
+    const { data, error } = await sb.from('approvers').upsert(a).select().single(); if (error) throw error; return data;
+  },
+  async deleteApprover(id){
+    if (DEMO){ await sleep(250); demoStore.approvers = demoStore.approvers.filter(x=>x.id!==id); return; }
+    const { error } = await sb.from('approvers').delete().eq('id', id); if (error) throw error;
+  },
+
+  async saveUser(u, isNew){
+    if (DEMO){ await sleep(250);
+      if (isNew) demoStore.users.push(u);
+      else { const i=demoStore.users.findIndex(x=>x.code===u.code); if(i>=0) demoStore.users[i]=u; }
+      return u;
+    }
+    const { data, error } = await sb.from('app_users').upsert(u).select().single(); if (error) throw error; return data;
+  },
+  async deleteUser(code){
+    if (DEMO){ await sleep(250); demoStore.users = demoStore.users.filter(x=>x.code!==code); return; }
+    const { error } = await sb.from('app_users').delete().eq('code', code); if (error) throw error;
+  },
+
+  async notifyApprover(payload){
+    if (DEMO){ console.log('[DEMO email] →', payload.to, '| มีรายการขอใช้ยานพาหนะ PSP102 รอการตรวจสอบจากท่าน:', payload.booking?.id); return; }
+    try { await sb.functions.invoke(CONFIG.EDGE_NOTIFY_FN, { body: payload }); }
+    catch (e){ console.warn('notifyApprover failed (booking saved anyway):', e); }
+  },
+};
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+function hasOverlap(list, rec){
+  const ns=new Date(rec.start_datetime).getTime(), ne=new Date(rec.end_datetime).getTime();
+  return list.some(b => b.vehicle_id===rec.vehicle_id && (b.status==='Approved'||b.status==='Pending')
+    && b.id!==rec.id && ns < new Date(b.end_datetime).getTime() && ne > new Date(b.start_datetime).getTime());
+}
+
+/* ============================================================
+   5) STATE & AUTH
+============================================================ */
+const STATE = { vehicles:[], approvers:[], bookings:[], users:[], calStart:null, approveFilter:'Pending' };
+const SESSION = { code:null, role:null, name:null };
+const vehMap = id => STATE.vehicles.find(v=>v.id===id) || {};
+const apMap  = id => STATE.approvers.find(a=>a.id===id) || {};
+const isAdmin = () => SESSION.role === 'admin';
+
+async function authenticate(code){
+  const c = (code||'').trim();
+  if (!c) return { ok:false, msg:'กรุณากรอกรหัส' };
+  if (c === CONFIG.ADMIN_CODE){ SESSION.code=c; SESSION.role='admin'; SESSION.name='ผู้ดูแลระบบ'; return { ok:true }; }
+  let user = null;
+  if (DEMO){ user = demoStore.users.find(u=>u.code===c) || null; }
+  else {
+    const { data, error } = await sb.from('app_users').select('*').eq('code', c).limit(1);
+    if (error) return { ok:false, msg:'ตรวจสอบรหัสไม่สำเร็จ: '+error.message };
+    user = (data && data[0]) || null;
+  }
+  if (!user) return { ok:false, msg:'รหัสไม่ถูกต้อง หรือยังไม่ได้รับสิทธิ์เข้าใช้งาน' };
+  SESSION.code=c; SESSION.role='user'; SESSION.name=user.name;
+  return { ok:true };
+}
+function applyRoleUI(){
+  document.getElementById('userName').textContent = SESSION.name;
+  document.getElementById('userRole').textContent = isAdmin() ? 'ผู้ดูแลระบบ (Admin)' : 'ผู้ใช้งาน (User)';
+  const av = document.getElementById('userAvatar');
+  av.textContent = isAdmin() ? 'A' : (SESSION.code[0]||'U').toUpperCase();
+  av.className = 'h-9 w-9 rounded-full grid place-items-center font-display text-sm ' + (isAdmin() ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600');
+  document.querySelectorAll('.admin-only').forEach(el=> el.style.display = isAdmin() ? '' : 'none');
+}
+
+/* ============================================================
+   6) TOAST & MODAL
+============================================================ */
+function toast(type, title, msg){
+  const wrap = document.getElementById('toast-wrap');
+  const bg = type==='success' ? 'bg-emerald-600' : type==='error' ? 'bg-rose-600' : 'bg-slate-800';
+  const icon = type==='success' ? '<path d="M20 6L9 17l-5-5"/>'
+    : type==='error' ? '<circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6M9 9l6 6"/>'
+    : '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>';
+  const el = document.createElement('div');
+  el.className = `toast ${bg}`;
+  el.innerHTML = `<svg class="h-5 w-5 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>
+    <div class="flex-1"><p class="font-semibold text-[14px] leading-tight">${esc(title)}</p><p class="text-[13px] text-white/90 mt-0.5">${esc(msg)}</p></div>`;
+  wrap.appendChild(el);
+  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>el.remove(),350); }, 4200);
+}
+function openModal(html){ const w=document.getElementById('modal-wrap'); document.getElementById('modal-card').innerHTML=html; w.classList.add('open'); }
+function closeModal(){ document.getElementById('modal-wrap').classList.remove('open'); }
+document.getElementById('modal-backdrop').addEventListener('click', closeModal);
+async function confirmDialog(title, msg, danger){
+  return new Promise(res=>{
+    openModal(`<div class="p-6">
+      <h3 class="font-display font-600 text-lg text-slate-800">${esc(title)}</h3>
+      <p class="text-sm text-slate-600 mt-2 leading-relaxed">${esc(msg)}</p>
+      <div class="flex gap-2 justify-end mt-5">
+        <button id="cfNo" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">ยกเลิก</button>
+        <button id="cfYes" class="px-4 py-2 rounded-xl text-sm font-semibold text-white ${danger?'bg-rose-600 hover:bg-rose-700':'bg-blue-600 hover:bg-blue-700'} transition">ยืนยัน</button>
+      </div></div>`);
+    document.getElementById('cfNo').onclick=()=>{ closeModal(); res(false); };
+    document.getElementById('cfYes').onclick=()=>{ closeModal(); res(true); };
+  });
+}
+
+/* ============================================================
+   7) RENDERERS
+============================================================ */
+function renderKPI(){
+  const total=STATE.bookings.length;
+  const pending=STATE.bookings.filter(b=>b.status==='Pending').length;
+  const approved=STATE.bookings.filter(b=>b.status==='Approved').length;
+  const avail=STATE.vehicles.filter(v=>v.status==='Available').length;
+  const cards=[
+    { label:'คำขอทั้งหมด', val:total, icon:'<path d="M9 11H3v10h6V11zM21 3h-6v18h6V3zM15 7H9v14h6V7z"/>', tone:'text-blue-600 bg-blue-50' },
+    { label:'รออนุมัติ', val:pending, icon:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', tone:'text-amber-600 bg-amber-50' },
+    { label:'อนุมัติแล้ว', val:approved, icon:'<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>', tone:'text-emerald-600 bg-emerald-50' },
+    { label:'รถพร้อมใช้งาน', val:avail+' / '+STATE.vehicles.length, icon:'<path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><path d="M5 17h14"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/>', tone:'text-slate-700 bg-slate-100' },
+  ];
+  document.getElementById('kpiStrip').innerHTML = cards.map((c,i)=>`
+    <div class="reveal bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-3" style="animation-delay:${i*60}ms">
+      <div class="h-11 w-11 rounded-xl grid place-items-center ${c.tone}"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${c.icon}</svg></div>
+      <div><p class="text-[12px] text-slate-400 font-medium">${c.label}</p><p class="font-display font-600 text-2xl text-slate-800 leading-tight">${c.val}</p></div>
+    </div>`).join('');
+}
+
+function vehImg(v){
+  return `<img src="${esc(v.image_url)}" alt="${esc(v.vehicle_type)}" class="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
+    onerror="this.style.display='none';this.parentElement.classList.add('grid','place-items-center');this.parentElement.insertAdjacentHTML('beforeend','<svg class=\\'h-12 w-12 text-slate-300\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'1.5\\'><path d=\\'M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5\\'/><path d=\\'M5 17h14\\'/></svg>')" />`;
+}
+function statusBadge(ok){
+  return ok
+    ? '<span class="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold px-2.5 py-1 rounded-full"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> พร้อมใช้งาน</span>'
+    : '<span class="inline-flex items-center gap-1.5 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold px-2.5 py-1 rounded-full"><span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span> ซ่อมบำรุง</span>';
+}
+function renderVehicleCards(){
+  document.getElementById('vehicleCards').innerHTML = STATE.vehicles.map((v,i)=>{
+    const ac=accentFor(v.id);
+    return `<div class="reveal bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group" style="animation-delay:${i*80}ms">
+      <div class="relative h-44 overflow-hidden bg-slate-100">${vehImg(v)}
+        <div class="absolute top-3 right-3">${statusBadge(v.status==='Available')}</div>
+        <div class="absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t from-black/50 to-transparent"></div></div>
+      <div class="p-4"><div class="flex items-center justify-between">
+        <div><p class="text-[12px] text-slate-400 font-medium">${esc(v.id)}</p>
+          <h3 class="font-display font-600 text-slate-800 text-lg leading-tight">${esc(v.vehicle_type)}</h3></div>
+        <span class="font-mono text-sm font-medium px-3 py-1.5 rounded-lg border" style="color:${ac};border-color:${ac}33;background:${ac}0d">${esc(v.license_plate)}</span>
+      </div></div></div>`;
+  }).join('');
+}
+
+function renderCalendar(){
+  const start=STATE.calStart;
+  const days=[...Array(7)].map((_,i)=>{ const d=new Date(start); d.setDate(d.getDate()+i); return d; });
+  const today=new Date();
+  document.getElementById('calRange').textContent =
+    `${days[0].getDate()} ${THMONTHS[days[0].getMonth()]} – ${days[6].getDate()} ${THMONTHS[days[6].getMonth()]} ${days[6].getFullYear()+543}`;
+  let html='<div class="cal-grid cal-head bg-slate-50/60"><div class="px-3 py-2.5 text-[12px] font-semibold text-slate-400 uppercase">ยานพาหนะ</div>';
+  days.forEach(d=>{ const t=sameDay(d,today);
+    html+=`<div class="px-2 py-2.5 text-center ${t?'cal-today':''}"><div class="text-[11px] ${t?'text-blue-600 font-semibold':'text-slate-400'}">${THDAYS[d.getDay()]}</div><div class="font-display font-500 text-sm ${t?'text-blue-700':'text-slate-700'}">${d.getDate()}</div></div>`; });
+  html+='</div><div class="cal-grid">';
+  STATE.vehicles.forEach(v=>{
+    const ac=accentFor(v.id);
+    html+=`<div class="cal-cell px-3 py-3 bg-slate-50/40 flex flex-col gap-1 justify-center">
+      <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full shrink-0" style="background:${ac}"></span><span class="font-display font-500 text-sm text-slate-700 leading-tight">${esc(v.license_plate)}</span></div>
+      <span class="text-[11px] text-slate-400 pl-4.5 leading-tight">${esc(v.vehicle_type)}</span></div>`;
+    days.forEach(d=>{ const t=sameDay(d,today);
+      const dayB=STATE.bookings.filter(b=>b.vehicle_id===v.id && b.status!=='Rejected' && sameDay(new Date(b.start_datetime),d)).sort((a,b)=>new Date(a.start_datetime)-new Date(b.start_datetime));
+      html+=`<div class="cal-cell p-1.5 space-y-1 ${t?'cal-today':''}">`;
+      dayB.forEach(b=>{ const pend=b.status==='Pending';
+        const bg=pend?'#fff7ed':`${ac}14`, bd=pend?'#fed7aa':`${ac}40`, col=pend?'#b45309':ac;
+        html+=`<div class="chip rounded-lg px-2 py-1 cursor-default border" style="background:${bg};border-color:${bd}" title="${esc(b.requester_name)} · ${esc(b.purpose)}">
+          <div class="text-[11px] font-mono font-medium leading-none" style="color:${col}">${fmtTime(b.start_datetime)}–${fmtTime(b.end_datetime)}</div>
+          <div class="text-[11px] text-slate-600 truncate leading-tight mt-0.5">${esc(b.requester_name)}${pend?' •รอ':''}</div></div>`; });
+      html+='</div>';
+    });
+  });
+  html+='</div>';
+  document.getElementById('calendar').innerHTML=html;
+}
+
+function renderRecent(){
+  const rows=[...STATE.bookings].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,8);
+  document.getElementById('recentTable').innerHTML = rows.map(b=>{
+    const v=vehMap(b.vehicle_id), s=STATUS_STYLE[b.status]||STATUS_STYLE.Pending;
+    return `<tr class="hover:bg-slate-50/60 transition">
+      <td class="px-5 py-3"><div class="font-mono text-[12px] text-slate-500">${esc(b.id.replace('BK-PSP102-','#'))}</div><div class="text-[11px] text-blue-600 font-mono">${esc(b.job_no||'-')}</div></td>
+      <td class="px-5 py-3"><div class="font-medium text-slate-700">${esc(b.requester_name)}</div><div class="text-[12px] text-slate-400">${esc(b.department||'')}</div></td>
+      <td class="px-5 py-3"><div class="flex items-center gap-2"><span class="h-2 w-2 rounded-full" style="background:${accentFor(b.vehicle_id)}"></span><span class="text-slate-600">${esc(v.license_plate||'-')}</span></div></td>
+      <td class="px-5 py-3 text-[13px]"><a href="${mapLink(b.location)}" target="_blank" class="text-blue-600 hover:underline inline-flex items-center gap-1"><svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>${esc((b.location||'-').length>18?(b.location.slice(0,18)+'…'):(b.location||'-'))}</a></td>
+      <td class="px-5 py-3 text-[13px] text-slate-600">${fmtDT(b.start_datetime)} <span class="text-slate-300">→</span> ${fmtTime(b.end_datetime)}</td>
+      <td class="px-5 py-3"><span class="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full border ${s.cls}"><span class="h-1.5 w-1.5 rounded-full ${s.dot}"></span>${s.txt}</span></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="6" class="px-5 py-8 text-center text-slate-400">ยังไม่มีรายการจอง</td></tr>';
+}
+
+function renderApprovers(){
+  const admin=isAdmin();
+  document.getElementById('approverGrid').innerHTML = STATE.approvers.map((a,i)=>{
+    const ctrl = admin ? `<div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+        <button onclick="editApprover('${esc(a.id)}')" class="flex-1 inline-flex items-center justify-center gap-1.5 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 text-sm font-semibold py-2 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> แก้ไข</button>
+        <button onclick="removeApprover('${esc(a.id)}')" class="inline-flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-sm font-semibold py-2 px-3 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      </div>` : '';
+    return `<div class="reveal bg-white rounded-2xl border border-slate-200 p-4 shadow-sm" style="animation-delay:${i*60}ms">
+      <div class="flex items-center gap-3">
+        <div class="h-12 w-12 rounded-full bg-blue-50 text-blue-600 grid place-items-center font-display font-600 text-lg shrink-0">${esc((a.approver_name||'?').trim()[0]||'?')}</div>
+        <div class="min-w-0"><h3 class="font-display font-600 text-slate-800 leading-tight truncate">${esc(a.approver_name)}</h3>
+          <p class="text-[12px] text-slate-400 truncate">${esc(a.position||'-')}</p></div>
+      </div>
+      <div class="mt-3 flex items-center gap-2 text-[13px] text-slate-600">
+        <svg class="h-4 w-4 text-slate-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+        <a href="mailto:${esc(a.approver_email)}" class="text-blue-600 hover:underline truncate">${esc(a.approver_email)}</a></div>
+      ${ctrl}</div>`;
+  }).join('') || '<div class="col-span-full py-10 text-center text-slate-400">ยังไม่มีรายชื่อผู้อนุมัติ</div>';
+}
+
+function renderApproveList(){
+  const filtered=STATE.bookings.filter(b=>b.status===STATE.approveFilter).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const wrap=document.getElementById('approveList');
+  if(!filtered.length){ wrap.innerHTML=`<div class="md:col-span-2 py-12 text-center text-slate-400">
+    <svg class="h-12 w-12 mx-auto mb-2 text-slate-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    ไม่มีรายการในสถานะนี้</div>`; return; }
+  wrap.innerHTML = filtered.map(b=>{
+    const v=vehMap(b.vehicle_id), a=apMap(b.approver_id), s=STATUS_STYLE[b.status];
+    let actions = '';
+    if (isAdmin()){
+      actions = b.status==='Pending' ? `<div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+        <button onclick="decide('${esc(b.id)}','Approved')" class="flex-1 inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg> อนุมัติ</button>
+        <button onclick="decide('${esc(b.id)}','Rejected')" class="flex-1 inline-flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-sm font-semibold py-2 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg> ปฏิเสธ</button>
+      </div>` : `<div class="flex justify-end mt-3 pt-3 border-t border-slate-100">
+        <button onclick="removeBooking('${esc(b.id)}')" class="inline-flex items-center gap-1.5 text-rose-600 hover:bg-rose-50 border border-rose-200 text-sm font-medium py-1.5 px-3 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg> ลบรายการ</button></div>`;
+    }
+    return `<div class="reveal bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0"><p class="font-mono text-[11px] text-slate-400">${esc(b.id.replace('BK-PSP102-','#'))} · <span class="text-blue-500">${esc(b.job_no||'-')}</span></p>
+          <h3 class="font-display font-600 text-slate-800 text-base leading-tight mt-0.5">${esc(b.requester_name)}</h3>
+          <p class="text-[12px] text-slate-400">${esc(b.department||'')}</p></div>
+        <span class="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full border ${s.cls} shrink-0"><span class="h-1.5 w-1.5 rounded-full ${s.dot}"></span>${s.txt}</span></div>
+      <div class="mt-3 space-y-1.5 text-[13px]">
+        <div class="flex items-center gap-2 text-slate-600"><svg class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.4h10.2A2 2 0 0 1 19 8l2 5"/><circle cx="7.5" cy="17.5" r="1.5"/><circle cx="16.5" cy="17.5" r="1.5"/></svg> ${esc(v.vehicle_type||'')} <span class="font-mono text-slate-400">(${esc(v.license_plate||'-')})</span></div>
+        <div class="flex items-center gap-2 text-slate-600"><svg class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> ${fmtDT(b.start_datetime)} → ${fmtTime(b.end_datetime)}</div>
+        <div class="flex items-start gap-2 text-slate-600"><svg class="h-4 w-4 text-slate-400 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> <a href="${mapLink(b.location)}" target="_blank" class="text-blue-600 hover:underline leading-snug">${esc(b.location||'-')}</a></div>
+        <div class="flex items-start gap-2 text-slate-600"><svg class="h-4 w-4 text-slate-400 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg> <span class="leading-snug">${esc(b.purpose)}</span></div>
+        <div class="flex items-center gap-2 text-slate-600"><svg class="h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ผู้อนุมัติ: ${esc(a.approver_name||'-')}</div>
+      </div>${actions}</div>`;
+  }).join('');
+}
+
+function renderVehicleAdmin(){
+  document.getElementById('vehicleAdminGrid').innerHTML = STATE.vehicles.map(v=>{
+    const ac=accentFor(v.id), ok=v.status==='Available';
+    return `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="relative h-32 overflow-hidden bg-slate-100 group">${vehImg(v)}<div class="absolute top-2 right-2">${statusBadge(ok)}</div></div>
+      <div class="p-4">
+        <p class="text-[12px] text-slate-400 font-medium">${esc(v.id)}</p>
+        <div class="flex items-center justify-between"><h3 class="font-display font-600 text-slate-800 leading-tight">${esc(v.vehicle_type)}</h3>
+          <span class="font-mono text-sm font-medium px-2.5 py-1 rounded-lg border" style="color:${ac};border-color:${ac}33;background:${ac}0d">${esc(v.license_plate)}</span></div>
+        <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+          <button onclick="toggleVehicle('${esc(v.id)}')" class="flex-1 inline-flex items-center justify-center gap-1.5 text-sm font-semibold py-2 rounded-lg transition ${ok?'bg-amber-50 text-amber-700 hover:bg-amber-100':'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}">${ok?'ตั้งซ่อมบำรุง':'ตั้งพร้อมใช้'}</button>
+          <button onclick="editVehicle('${esc(v.id)}')" class="inline-flex items-center gap-1.5 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 text-sm font-semibold py-2 px-3 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button onclick="removeVehicle('${esc(v.id)}')" class="inline-flex items-center gap-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-sm font-semibold py-2 px-3 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg></button>
+        </div></div></div>`;
+  }).join('') || '<div class="col-span-full py-10 text-center text-slate-400">ยังไม่มีข้อมูลรถ</div>';
+}
+
+function renderPendingBadge(){
+  const n=STATE.bookings.filter(b=>b.status==='Pending').length;
+  const badge=document.getElementById('pendingBadge'); badge.textContent=n; badge.style.display=n?'grid':'none';
+}
+function fillDropdowns(){
+  document.getElementById('selVehicle').innerHTML='<option value="">— เลือกรถ —</option>'+
+    STATE.vehicles.filter(v=>v.status==='Available').map(v=>`<option value="${esc(v.id)}">${esc(v.vehicle_type)} — ${esc(v.license_plate)}</option>`).join('');
+  document.getElementById('selApprover').innerHTML='<option value="">— เลือกผู้อนุมัติ —</option>'+
+    STATE.approvers.map(a=>`<option value="${esc(a.id)}">${esc(a.approver_name)} (${esc(a.position||'')})</option>`).join('');
+}
+function renderDashboard(){ renderKPI(); renderVehicleCards(); renderCalendar(); renderRecent(); }
+function renderAll(){ renderDashboard(); fillDropdowns(); renderPendingBadge(); renderApproveList(); if(isAdmin()){ renderApprovers(); renderUserAdmin(); renderVehicleAdmin(); } }
+
+/* ============================================================
+   8) ADMIN ACTIONS (CRUD)
+============================================================ */
+window.decide = async (id, status)=>{
+  try { await api.updateBookingStatus(id,status);
+    const b=STATE.bookings.find(x=>x.id===id); if(b) b.status=status;
+    toast('success', status==='Approved'?'อนุมัติแล้ว':'ปฏิเสธแล้ว', `รายการ ${id.replace('BK-PSP102-','#')} อัปเดตเรียบร้อย`);
+    renderAll();
+  } catch(e){ toast('error','เกิดข้อผิดพลาด', e.message||'อัปเดตไม่สำเร็จ'); }
+};
+window.removeBooking = async (id)=>{
+  if(!await confirmDialog('ลบรายการจอง','ต้องการลบรายการนี้ถาวรหรือไม่?',true)) return;
+  try { await api.deleteBooking(id); STATE.bookings=STATE.bookings.filter(x=>x.id!==id); toast('success','ลบแล้ว','ลบรายการเรียบร้อย'); renderAll(); }
+  catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+window.toggleVehicle = async (id)=>{
+  const v=STATE.vehicles.find(x=>x.id===id); if(!v) return;
+  const next = v.status==='Available'?'Maintenance':'Available';
+  try { const saved=await api.saveVehicle({...v,status:next}, false); Object.assign(v, saved||{...v,status:next}); toast('success','อัปเดตสถานะ',`${v.license_plate} → ${next==='Available'?'พร้อมใช้งาน':'ซ่อมบำรุง'}`); renderAll(); }
+  catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+
+function vehicleForm(v){
+  const isNew=!v;
+  v=v||{ id:'', license_plate:'', vehicle_type:'', image_url:'', status:'Available' };
+  return `<div class="p-6">
+    <h3 class="font-display font-600 text-lg text-slate-800 mb-4">${isNew?'เพิ่มยานพาหนะ':'แก้ไขยานพาหนะ'}</h3>
+    <div class="space-y-3">
+      <div><label class="lbl">รหัสรถ (Vehicle ID)</label><input id="vf_id" class="input font-mono" value="${esc(v.id)}" ${isNew?'placeholder="เช่น VH-03"':'readonly'} /></div>
+      <div><label class="lbl">เลขทะเบียน</label><input id="vf_plate" class="input" value="${esc(v.license_plate)}" placeholder="เช่น กก-9999" /></div>
+      <div><label class="lbl">ประเภทรถ</label><input id="vf_type" class="input" value="${esc(v.vehicle_type)}" placeholder="เช่น รถเก๋ง Honda Civic" /></div>
+      <div><label class="lbl">URL รูปภาพ</label><input id="vf_img" class="input" value="${esc(v.image_url)}" placeholder="https://..." /></div>
+      <div><label class="lbl">สถานะ</label><select id="vf_status" class="input"><option value="Available" ${v.status==='Available'?'selected':''}>พร้อมใช้งาน</option><option value="Maintenance" ${v.status==='Maintenance'?'selected':''}>ซ่อมบำรุง</option></select></div>
+    </div>
+    <div class="flex gap-2 justify-end mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">ยกเลิก</button>
+      <button onclick="saveVehicleForm(${isNew})" class="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition">บันทึก</button>
+    </div></div>`;
+}
+window.editVehicle = (id)=> openModal(vehicleForm(STATE.vehicles.find(v=>v.id===id)));
+document.getElementById('addVehicleBtn').addEventListener('click', ()=> openModal(vehicleForm(null)));
+window.saveVehicleForm = async (isNew)=>{
+  const v={ id:(document.getElementById('vf_id').value||'').trim(), license_plate:document.getElementById('vf_plate').value.trim(),
+    vehicle_type:document.getElementById('vf_type').value.trim(), image_url:document.getElementById('vf_img').value.trim(), status:document.getElementById('vf_status').value };
+  if(isNew && !v.id) v.id='VH-'+Date.now();
+  if(!v.license_plate || !v.vehicle_type){ toast('error','ข้อมูลไม่ครบ','กรุณากรอกทะเบียนและประเภทรถ'); return; }
+  try { const saved=await api.saveVehicle(v, isNew);
+    if(isNew) STATE.vehicles.push(saved||v); else { const i=STATE.vehicles.findIndex(x=>x.id===v.id); if(i>=0) STATE.vehicles[i]=saved||v; }
+    closeModal(); toast('success','บันทึกแล้ว','บันทึกข้อมูลรถเรียบร้อย'); renderAll();
+  } catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+window.removeVehicle = async (id)=>{
+  const v=STATE.vehicles.find(x=>x.id===id);
+  if(!await confirmDialog('ลบยานพาหนะ',`ต้องการลบรถ ${v?v.license_plate:''} ใช่หรือไม่? (ลบไม่ได้หากมีการจองอ้างอิงอยู่)`,true)) return;
+  try { await api.deleteVehicle(id); STATE.vehicles=STATE.vehicles.filter(x=>x.id!==id); toast('success','ลบแล้ว','ลบข้อมูลรถเรียบร้อย'); renderAll(); }
+  catch(e){ toast('error','ลบไม่สำเร็จ', /foreign|reference|violat/i.test(e.message)?'ลบไม่ได้ เพราะมีการจองอ้างถึงรถคันนี้':e.message); }
+};
+
+function approverForm(a){
+  const isNew=!a;
+  a=a||{ id:'', approver_name:'', approver_email:'', position:'' };
+  return `<div class="p-6">
+    <h3 class="font-display font-600 text-lg text-slate-800 mb-4">${isNew?'เพิ่มผู้มีสิทธิ์อนุมัติ':'แก้ไขผู้มีสิทธิ์อนุมัติ'}</h3>
+    <div class="space-y-3">
+      <div><label class="lbl">ชื่อ-นามสกุล</label><input id="af_name" class="input" value="${esc(a.approver_name)}" placeholder="เช่น นายสมศักดิ์ ดีงาม" /></div>
+      <div><label class="lbl">อีเมล (สำหรับแจ้งเตือน)</label><input id="af_email" type="email" class="input" value="${esc(a.approver_email)}" placeholder="name@example.com" /></div>
+      <div><label class="lbl">ตำแหน่ง</label><input id="af_pos" class="input" value="${esc(a.position)}" placeholder="เช่น ผู้จัดการฝ่าย" /></div>
+    </div>
+    <div class="flex gap-2 justify-end mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">ยกเลิก</button>
+      <button onclick="saveApproverForm(${isNew},'${esc(a.id)}')" class="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition">บันทึก</button>
+    </div></div>`;
+}
+window.editApprover = (id)=> openModal(approverForm(STATE.approvers.find(a=>a.id===id)));
+document.getElementById('addApproverBtn').addEventListener('click', ()=> openModal(approverForm(null)));
+document.getElementById('addUserBtn').addEventListener('click', ()=> openModal(userForm(null)));
+window.saveApproverForm = async (isNew, id)=>{
+  const a={ id: isNew?('AP-'+Date.now()):id, approver_name:document.getElementById('af_name').value.trim(),
+    approver_email:document.getElementById('af_email').value.trim(), position:document.getElementById('af_pos').value.trim() };
+  if(!a.approver_name || !a.approver_email){ toast('error','ข้อมูลไม่ครบ','กรุณากรอกชื่อและอีเมล'); return; }
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a.approver_email)){ toast('error','อีเมลไม่ถูกต้อง','กรุณาตรวจสอบรูปแบบอีเมล'); return; }
+  try { const saved=await api.saveApprover(a, isNew);
+    if(isNew) STATE.approvers.push(saved||a); else { const i=STATE.approvers.findIndex(x=>x.id===id); if(i>=0) STATE.approvers[i]=saved||a; }
+    closeModal(); toast('success','บันทึกแล้ว','บันทึกข้อมูลผู้อนุมัติเรียบร้อย'); renderAll();
+  } catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+window.removeApprover = async (id)=>{
+  const a=STATE.approvers.find(x=>x.id===id);
+  if(!await confirmDialog('ลบผู้อนุมัติ',`ต้องการลบ ${a?a.approver_name:''} ใช่หรือไม่?`,true)) return;
+  try { await api.deleteApprover(id); STATE.approvers=STATE.approvers.filter(x=>x.id!==id); toast('success','ลบแล้ว','ลบรายชื่อผู้อนุมัติเรียบร้อย'); renderAll(); }
+  catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+
+/* ----- ผู้มีสิทธิ์ขอใช้ยานพาหนะ (app_users) ----- */
+function renderUserAdmin(){
+  document.getElementById('userGrid').innerHTML = STATE.users.map(u=>`
+    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+      <div class="flex items-center gap-3">
+        <div class="h-11 w-11 rounded-full bg-emerald-50 text-emerald-600 grid place-items-center font-display font-600 shrink-0">${esc((u.name||'?').trim()[0]||'?')}</div>
+        <div class="min-w-0"><h3 class="font-display font-600 text-slate-800 leading-tight truncate">${esc(u.name)}</h3>
+          <p class="font-mono text-[12px] text-blue-600">${esc(u.code)}</p></div>
+      </div>
+      <div class="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+        <button onclick="editUser('${esc(u.code)}')" class="flex-1 inline-flex items-center justify-center gap-1.5 bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 text-sm font-semibold py-2 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> แก้ไข</button>
+        <button onclick="removeUser('${esc(u.code)}')" class="inline-flex items-center justify-center gap-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-sm font-semibold py-2 px-3 rounded-lg transition"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      </div>
+    </div>`).join('') || '<div class="col-span-full py-10 text-center text-slate-400">ยังไม่มีผู้ใช้งาน — กด “เพิ่มผู้ใช้งาน” เพื่อออกรหัส PSP-xxxxxx</div>';
+}
+function genUserCode(){ let c; do { c='PSP-'+Math.floor(100000+Math.random()*900000); } while(STATE.users.some(u=>u.code===c)); return c; }
+function userForm(u){
+  const isNew=!u;
+  u=u||{ code:genUserCode(), name:'' };
+  return `<div class="p-6">
+    <h3 class="font-display font-600 text-lg text-slate-800 mb-4">${isNew?'เพิ่มผู้มีสิทธิ์ขอใช้ยานพาหนะ':'แก้ไขผู้ใช้งาน'}</h3>
+    <div class="space-y-3">
+      <div><label class="lbl">รหัสเข้าใช้งาน (Access Code)</label><input id="uf_code" class="input font-mono" value="${esc(u.code)}" ${isNew?'':'readonly'} placeholder="PSP-123456" /><p class="text-[11px] text-slate-400 mt-1">ผู้ใช้จะใช้รหัสนี้เข้าสู่ระบบ (ไม่มีรหัสผ่าน)</p></div>
+      <div><label class="lbl">ชื่อ-สกุล</label><input id="uf_name" class="input" value="${esc(u.name)}" placeholder="เช่น สมชาย ใจดี" /></div>
+    </div>
+    <div class="flex gap-2 justify-end mt-5">
+      <button onclick="closeModal()" class="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition">ยกเลิก</button>
+      <button onclick="saveUserForm(${isNew},'${esc(u.code)}')" class="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition">บันทึก</button>
+    </div></div>`;
+}
+window.editUser = (code)=> openModal(userForm(STATE.users.find(u=>u.code===code)));
+window.saveUserForm = async (isNew, origCode)=>{
+  const code=(document.getElementById('uf_code').value||'').trim();
+  const name=(document.getElementById('uf_name').value||'').trim();
+  if(!code || !name){ toast('error','ข้อมูลไม่ครบ','กรุณากรอกรหัสและชื่อ-สกุล'); return; }
+  if(code===CONFIG.ADMIN_CODE){ toast('error','รหัสซ้ำ','รหัสนี้ถูกใช้เป็นรหัสผู้ดูแลระบบแล้ว'); return; }
+  if(isNew && STATE.users.some(u=>u.code===code)){ toast('error','รหัสซ้ำ','มีรหัสนี้อยู่แล้วในระบบ'); return; }
+  const u={ code, name };
+  try { const saved=await api.saveUser(u, isNew);
+    if(isNew) STATE.users.push(saved||u); else { const i=STATE.users.findIndex(x=>x.code===origCode); if(i>=0) STATE.users[i]=saved||u; }
+    closeModal(); toast('success','บันทึกแล้ว','บันทึกข้อมูลผู้ใช้งานเรียบร้อย'); renderUserAdmin();
+  } catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+window.removeUser = async (code)=>{
+  const u=STATE.users.find(x=>x.code===code);
+  if(!await confirmDialog('ลบผู้ใช้งาน',`ต้องการลบ ${u?u.name:''} (${code}) ใช่หรือไม่?`,true)) return;
+  try { await api.deleteUser(code); STATE.users=STATE.users.filter(x=>x.code!==code); toast('success','ลบแล้ว','ลบผู้ใช้งานเรียบร้อย'); renderUserAdmin(); }
+  catch(e){ toast('error','เกิดข้อผิดพลาด', e.message); }
+};
+
+/* ============================================================
+   9) EVENTS
+============================================================ */
+document.querySelectorAll('.nav-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+    document.getElementById('view-'+btn.dataset.tab).classList.add('active');
+    if(btn.dataset.tab==='approvals') renderApproveList();
+    if(btn.dataset.tab==='admin' && isAdmin()){ renderApprovers(); renderUserAdmin(); renderVehicleAdmin(); }
+  });
+});
+document.getElementById('calPrev').addEventListener('click', ()=>{ STATE.calStart.setDate(STATE.calStart.getDate()-7); renderCalendar(); });
+document.getElementById('calNext').addEventListener('click', ()=>{ STATE.calStart.setDate(STATE.calStart.getDate()+7); renderCalendar(); });
+document.getElementById('calToday').addEventListener('click', ()=>{ STATE.calStart=startOfWeek(new Date()); renderCalendar(); });
+
+document.getElementById('approveFilter').addEventListener('click', e=>{
+  const btn=e.target.closest('.filter-btn'); if(!btn) return;
+  STATE.approveFilter=btn.dataset.f;
+  document.querySelectorAll('.filter-btn').forEach(b=>{ b.classList.remove('active','bg-blue-600','text-white','border-blue-600'); b.classList.add('text-slate-500','border-slate-200'); });
+  btn.classList.add('active','bg-blue-600','text-white','border-blue-600'); btn.classList.remove('text-slate-500','border-slate-200');
+  renderApproveList();
+});
+
+const form=document.getElementById('bookingForm');
+form.addEventListener('submit', async e=>{
+  e.preventDefault();
+  const fd=new FormData(form);
+  const startL=fd.get('start'), endL=fd.get('end');
+  if(!startL||!endL){ toast('error','ข้อมูลไม่ครบ','กรุณาเลือกวันและเวลา'); return; }
+  if(new Date(endL).getTime() <= new Date(startL).getTime()){ toast('error','เวลาไม่ถูกต้อง','เวลาสิ้นสุดต้องมากกว่าเวลาเริ่มต้น'); return; }
+  const rec={
+    id:'BK-PSP102-'+Date.now(),
+    job_no:fd.get('job_no').trim(),
+    requester_name:fd.get('requester_name').trim(),
+    department:fd.get('department').trim(),
+    vehicle_id:fd.get('vehicle_id'),
+    start_datetime:localToISO(startL),
+    end_datetime:localToISO(endL),
+    location:fd.get('location').trim(),
+    purpose:fd.get('purpose').trim(),
+    approver_id:fd.get('approver_id'),
+    status:'Pending',
+    created_by:SESSION.code,
+    created_at:new Date().toISOString(),
+  };
+  if(!rec.job_no||!rec.requester_name||!rec.department||!rec.vehicle_id||!rec.location||!rec.purpose||!rec.approver_id){
+    toast('error','ข้อมูลไม่ครบ','กรุณากรอกข้อมูลให้ครบทุกช่อง'); return;
+  }
+  const btn=document.getElementById('submitBtn'), txt=document.getElementById('submitText');
+  btn.disabled=true; txt.textContent='กำลังบันทึก...';
+  document.getElementById('submitIcon').outerHTML='<svg id="submitIcon" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>';
+  try {
+    const saved=await api.createBooking(rec);
+    STATE.bookings.push(saved||rec);
+    const ap=apMap(rec.approver_id);
+    api.notifyApprover({ to:ap.approver_email, approver_name:ap.approver_name, booking:{ ...rec, vehicle_label:(vehMap(rec.vehicle_id).vehicle_type+' '+vehMap(rec.vehicle_id).license_plate) } });
+    toast('success','บันทึกคำขอสำเร็จ','ระบบได้แจ้งผู้อนุมัติทางอีเมลแล้ว');
+    form.reset(); defaultDatetimes(); prefillRequester();
+    renderAll();
+    document.querySelector('.nav-btn[data-tab="dashboard"]').click();
+  } catch(err){
+    if(err.message==='OVERLAP') toast('error','ไม่สามารถจองได้','รถคันนี้ถูกจองในช่วงเวลาดังกล่าวแล้ว');
+    else toast('error','เกิดข้อผิดพลาด', err.message||'บันทึกไม่สำเร็จ');
+  } finally {
+    btn.disabled=false; txt.textContent='ส่งคำขอจอง';
+    document.getElementById('submitIcon').outerHTML='<svg id="submitIcon" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';
+  }
+});
+
+function defaultDatetimes(){
+  const s=new Date(); s.setDate(s.getDate()+1); s.setHours(9,0,0,0);
+  const e=new Date(s); e.setHours(12,0,0,0);
+  document.getElementById('inpStart').value=isoLocalInput(s);
+  document.getElementById('inpEnd').value=isoLocalInput(e);
+}
+function prefillRequester(){ const el=document.getElementById('inpRequester'); if(el && SESSION.role==='user' && SESSION.name) el.value=SESSION.name; }
+
+/* ============================================================
+   10) LOGIN & BOOT
+============================================================ */
+document.getElementById('loginForm').addEventListener('submit', async e=>{
+  e.preventDefault();
+  const code=document.getElementById('loginCode').value;
+  const res = await authenticate(code);
+  if(!res.ok){ toast('error','เข้าสู่ระบบไม่สำเร็จ', res.msg||'รหัสไม่ถูกต้อง'); return; }
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('app').classList.remove('app-hidden');
+  applyRoleUI();
+  await boot();
+  if(isAdmin()) toast('info','ยินดีต้อนรับผู้ดูแลระบบ','จัดการผู้อนุมัติ ผู้ใช้งาน ยานพาหนะ และอนุมัติคำขอได้');
+  else toast('info','ยินดีต้อนรับ', SESSION.name);
+});
+document.getElementById('logoutBtn').addEventListener('click', ()=> location.reload());
+
+if(DEMO){
+  const b=document.getElementById('modeBadge'); b.className='hidden md:inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1';
+  b.innerHTML='<span class="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse"></span> Demo Mode (ยังไม่ตั้งค่า Supabase)';
+  const h=document.getElementById('loginHint'); h.classList.remove('hidden');
+  h.innerHTML='โหมดทดลอง: ผู้ดูแลระบบใช้รหัส <b class="font-mono">'+CONFIG.ADMIN_CODE+'</b> · ผู้ใช้งานทดลองใช้รหัส <b class="font-mono">PSP-100001</b> (สมหญิง รักงาน)';
+} else {
+  const b=document.getElementById('modeBadge'); b.className='hidden md:inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1';
+  b.innerHTML='<span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Supabase Connected';
+}
+
+async function boot(){
+  try {
+    const data=await api.getInitialData();
+    STATE.vehicles=data.vehicles; STATE.approvers=data.approvers; STATE.bookings=data.bookings;
+    STATE.calStart=startOfWeek(new Date());
+    document.getElementById('archNote').textContent = DEMO
+      ? 'ℹ️ ขณะนี้รันแบบ Demo (ข้อมูลในหน่วยความจำ รีเฟรชแล้วหาย) — ใส่ค่า Supabase ใน CONFIG เพื่อใช้งานจริงแบบถาวร'
+      : 'เชื่อมต่อ Supabase สำเร็จ — ข้อมูลถูกบันทึกถาวรในฐานข้อมูล PostgreSQL';
+    defaultDatetimes();
+    prefillRequester();
+    renderAll();
+  } catch(e){
+    toast('error','โหลดข้อมูลไม่สำเร็จ', e.message||'ตรวจสอบการตั้งค่า Supabase และ RLS');
+    console.error(e);
+  }
+}
+</script>
+</body>
+</html>
